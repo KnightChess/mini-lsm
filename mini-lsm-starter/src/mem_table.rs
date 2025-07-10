@@ -15,20 +15,20 @@
 #![allow(unused_variables)] // TODO(you): remove this lint after implementing this mod
 #![allow(dead_code)] // TODO(you): remove this lint after implementing this mod
 
+use crate::iterators::StorageIterator;
+use crate::key::KeySlice;
+use crate::table::SsTableBuilder;
+use crate::wal::Wal;
 use anyhow::Result;
 use bytes::Bytes;
 use crossbeam_skiplist::SkipMap;
+use crossbeam_skiplist::map::Entry;
 use ouroboros::self_referencing;
 use std::ops::Bound;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::Relaxed;
-
-use crate::iterators::StorageIterator;
-use crate::key::KeySlice;
-use crate::table::SsTableBuilder;
-use crate::wal::Wal;
 
 /// A basic mem-table based on crossbeam-skiplist.
 ///
@@ -123,8 +123,17 @@ impl MemTable {
     }
 
     /// Get an iterator over a range of keys.
-    pub fn scan(&self, _lower: Bound<&[u8]>, _upper: Bound<&[u8]>) -> MemTableIterator {
-        unimplemented!()
+    pub fn scan(&self, lower: Bound<&[u8]>, upper: Bound<&[u8]>) -> MemTableIterator {
+        let skip_map = self.map.clone();
+        let (lower, upper) = (map_bound(lower), map_bound(upper));
+        let mut iter = MemTableIteratorBuilder {
+            map: skip_map,
+            iter_builder: |map| map.range((lower, upper)),
+            item: (Bytes::new(), Bytes::new()),
+        }
+        .build();
+        iter.next().expect("TODO: panic message");
+        iter
     }
 
     /// Flush the mem-table to SSTable. Implement in week 1 day 6.
@@ -166,22 +175,33 @@ pub struct MemTableIterator {
     item: (Bytes, Bytes),
 }
 
+impl MemTableIterator {
+    fn entry_to_item(entry: Option<Entry<Bytes, Bytes>>) -> (Bytes, Bytes) {
+        entry
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .unwrap_or_else(|| (Bytes::from_static(&[]), Bytes::from_static(&[])))
+    }
+}
+
 impl StorageIterator for MemTableIterator {
     type KeyType<'a> = KeySlice<'a>;
 
     fn value(&self) -> &[u8] {
-        unimplemented!()
+        &self.borrow_item().1[..]
     }
 
     fn key(&self) -> KeySlice {
-        unimplemented!()
+        KeySlice::from_slice(&self.borrow_item().0[..])
     }
 
     fn is_valid(&self) -> bool {
-        unimplemented!()
+        !self.borrow_item().0.is_empty()
     }
 
     fn next(&mut self) -> Result<()> {
-        unimplemented!()
+        let entry = self.with_iter_mut(|iter| iter.next());
+        let item = Self::entry_to_item(entry);
+        self.with_mut(|m| *m.item = item);
+        Ok(())
     }
 }
