@@ -85,7 +85,13 @@ impl<I: StorageIterator> StorageIterator for FusedIterator<I> {
         Self: 'a;
 
     fn is_valid(&self) -> bool {
-        self.has_errored
+        if self.has_errored {
+            false
+        } else if self.iter.is_valid() {
+            true
+        } else { 
+            false
+        }
     }
 
     fn key(&self) -> Self::KeyType<'_> {
@@ -97,6 +103,9 @@ impl<I: StorageIterator> StorageIterator for FusedIterator<I> {
     }
 
     fn next(&mut self) -> Result<()> {
+        if self.has_errored {
+            return Err(Error::msg("FusedIterator errored"));
+        }
         match self.iter.next() {
             Ok(_) => Ok(()),
             Err(_) => {
