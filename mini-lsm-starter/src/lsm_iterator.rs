@@ -19,6 +19,7 @@ use anyhow::{Error, Result};
 
 use crate::{
     iterators::{StorageIterator, merge_iterator::MergeIterator},
+    lsm_iterator,
     mem_table::MemTableIterator,
 };
 
@@ -31,7 +32,11 @@ pub struct LsmIterator {
 
 impl LsmIterator {
     pub(crate) fn new(iter: LsmIteratorInner) -> Result<Self> {
-        Ok(Self { inner: iter })
+        let mut lsm_iterator = Self { inner: iter };
+        while lsm_iterator.is_valid() && lsm_iterator.value().is_empty() {
+            lsm_iterator.next()?;
+        }
+        Ok(lsm_iterator)
     }
 }
 
@@ -51,12 +56,7 @@ impl StorageIterator for LsmIterator {
     }
 
     fn next(&mut self) -> Result<()> {
-        loop {
-            self.inner.next()?;
-            if !self.inner.value().is_empty()  {
-                break;
-            }
-        }
+        self.inner.next()?;
         Ok(())
     }
 }
@@ -89,7 +89,7 @@ impl<I: StorageIterator> StorageIterator for FusedIterator<I> {
             false
         } else if self.iter.is_valid() {
             true
-        } else { 
+        } else {
             false
         }
     }
@@ -106,12 +106,12 @@ impl<I: StorageIterator> StorageIterator for FusedIterator<I> {
         if self.has_errored {
             return Err(Error::msg("FusedIterator errored"));
         }
-        match self.iter.next() {
-            Ok(_) => Ok(()),
-            Err(_) => {
+        if self.iter.is_valid() {
+            if let Err(e) = self.iter.next() {
                 self.has_errored = true;
-                Err(Error::msg("FUSED"))
+                return Err(e);
             }
         }
+        Ok(())
     }
 }
