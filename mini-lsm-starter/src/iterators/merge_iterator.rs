@@ -15,14 +15,12 @@
 #![allow(unused_variables)] // TODO(you): remove this lint after implementing this mod
 #![allow(dead_code)] // TODO(you): remove this lint after implementing this mod
 
+use super::StorageIterator;
+use crate::key::KeySlice;
+use anyhow::Result;
 use std::cmp::{self};
 use std::collections::BinaryHeap;
-
-use anyhow::Result;
-
-use crate::key::KeySlice;
-
-use super::StorageIterator;
+use std::collections::binary_heap::PeekMut;
 
 struct HeapWrapper<I: StorageIterator>(pub usize, pub Box<I>);
 
@@ -59,7 +57,19 @@ pub struct MergeIterator<I: StorageIterator> {
 
 impl<I: StorageIterator> MergeIterator<I> {
     pub fn create(iters: Vec<Box<I>>) -> Self {
-        unimplemented!()
+        let numbers = 0..=iters.len();
+        let filter_iter = iters.into_iter().filter(|i| i.is_valid());
+        let iter_heap: Vec<_> = numbers
+            .zip(filter_iter)
+            .map(|(n, i)| HeapWrapper(n, i))
+            .collect();
+
+        let mut heap = BinaryHeap::from(iter_heap);
+        let current = heap.pop().take();
+        MergeIterator {
+            iters: heap,
+            current,
+        }
     }
 }
 
@@ -69,18 +79,48 @@ impl<I: 'static + for<'a> StorageIterator<KeyType<'a> = KeySlice<'a>>> StorageIt
     type KeyType<'a> = KeySlice<'a>;
 
     fn key(&self) -> KeySlice {
-        unimplemented!()
+        KeySlice::from_slice(self.current.as_ref().unwrap().1.as_ref().key().raw_ref())
     }
 
     fn value(&self) -> &[u8] {
-        unimplemented!()
+        self.current.as_ref().unwrap().1.as_ref().value()
     }
 
     fn is_valid(&self) -> bool {
-        unimplemented!()
+        self.current.is_some() && self.current.as_ref().unwrap().1.as_ref().is_valid()
     }
 
     fn next(&mut self) -> Result<()> {
-        unimplemented!()
+        // 需要对 key 进行 clone，不产生不可变借用
+        let cur_key = self.current.as_ref().unwrap().1.key().to_key_vec();
+        // 需要进行 take 或者 mem::replace，转移所有权，不然 self.current.unwrap 会把结构体的 current 所有权移动
+        // 应该是 self 是可变借用了，表示有别的所有者了，然后结构体是单一所有者，所以不能转移所有权
+        let str = String::from_utf8(cur_key.raw_ref().to_vec())?;
+        self.iters.push(self.current.take().unwrap());
+        loop {
+            if let Some(mut item) = self.iters.peek_mut() {
+                if cur_key.raw_ref() == item.1.key().raw_ref() {
+                    // 不用 ？需要手动处理是因为，Err 了也得对 heapwrapper 进行 pop，否则离开作用域会自动构建，调用 key，会命中 error_when 的逻辑
+                    if let e @ Err(_) = (*item).1.next() {
+                        PeekMut::pop(item);
+                        return e;
+                    }
+                    if !(*item).1.is_valid() {
+                        PeekMut::pop(item);
+                    }
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        if self.iters.peek().is_some() && self.iters.peek().unwrap().1.is_valid() {
+            self.current = self.iters.pop();
+        } else {
+            self.current = None
+        }
+
+        Ok(())
     }
 }
