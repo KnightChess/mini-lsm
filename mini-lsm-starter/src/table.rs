@@ -16,13 +16,13 @@ pub(crate) mod bloom;
 mod builder;
 mod iterator;
 
-use std::fs::File;
-use std::path::Path;
-use std::sync::Arc;
 use anyhow::Result;
 pub use builder::SsTableBuilder;
 use bytes::{Buf, BufMut, Bytes};
 pub use iterator::SsTableIterator;
+use std::fs::File;
+use std::path::Path;
+use std::sync::Arc;
 
 use crate::block::Block;
 use crate::key::{KeyBytes, KeySlice};
@@ -64,7 +64,7 @@ impl BlockMeta {
         let mut buffer = buf.chunk();
         let mut block_meta = Vec::new();
         let num = buffer.get_u32() as usize;
-          while buffer.has_remaining() {
+        while buffer.has_remaining() {
             let offset = buffer.get_u32() as usize;
             let first_key_len = buffer.get_u16() as usize;
             let first_key = KeyBytes::from_bytes(buffer.copy_to_bytes(first_key_len));
@@ -144,9 +144,12 @@ impl SsTable {
     /// Open SSTable from a file.
     pub fn open(id: usize, block_cache: Option<Arc<BlockCache>>, file: FileObject) -> Result<Self> {
         let file_len = file.size();
-        let raw_meta_offset = file.read(file_len -  SIZEOF_U32 as u64, SIZEOF_U32 as u64)?;
+        let raw_meta_offset = file.read(file_len - SIZEOF_U32 as u64, SIZEOF_U32 as u64)?;
         let block_meta_offset = (&raw_meta_offset[..]).get_u32() as usize;
-        let raw_data = file.read(block_meta_offset as u64, file_len - block_meta_offset as u64 - SIZEOF_U32 as u64)?;
+        let raw_data = file.read(
+            block_meta_offset as u64,
+            file_len - block_meta_offset as u64 - SIZEOF_U32 as u64,
+        )?;
         let block_meta = BlockMeta::decode_block_meta(&raw_data[..]);
         let mut first_key = KeyBytes::from_bytes(Bytes::new());
         let mut last_key = KeyBytes::from_bytes(Bytes::new());
@@ -190,14 +193,14 @@ impl SsTable {
 
     /// Read a block from the disk.
     pub fn read_block(&self, block_idx: usize) -> Result<Arc<Block>> {
-        let mut block_end = self.block_meta_offset;
         //todo block idx >= meta len
-        if block_idx < (self.block_meta.len() - 1) {
-            block_end = self.block_meta[block_idx].offset
-        }
-        let target_block_meta = &self.block_meta[block_idx];
-        let data_len = block_end - target_block_meta.offset;
-        let raw_data = self.file.read(target_block_meta.offset as u64, data_len as u64)?;
+        let offset = self.block_meta[block_idx].offset;
+        let end_offset = self
+            .block_meta
+            .get(block_idx + 1)
+            .map_or(self.block_meta_offset, |x| x.offset);
+        let data_len = end_offset - offset;
+        let raw_data = self.file.read(offset as u64, data_len as u64)?;
         Ok(Arc::new(Block::decode(&raw_data[..])))
     }
 

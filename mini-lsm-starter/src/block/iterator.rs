@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(unused_variables)] // TODO(you): remove this lint after implementing this mod
-#![allow(dead_code)] // TODO(you): remove this lint after implementing this mod
-
 use crate::key::{KeySlice, KeyVec};
 use bytes::Buf;
 use std::sync::Arc;
@@ -117,6 +114,7 @@ impl BlockIterator {
         self.idx = 0;
         self.seek_to_idx(0);
         while self.is_valid() {
+            let tmp = String::from_utf8(self.key.raw_ref().to_vec());
             if self.key >= key.to_key_vec() {
                 break;
             }

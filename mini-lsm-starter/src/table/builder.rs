@@ -15,11 +15,11 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use super::{BlockMeta, FileObject, SsTable};
+use crate::key::KeyBytes;
+use crate::{block::BlockBuilder, key::KeySlice, lsm_storage::BlockCache};
 use anyhow::Result;
 use bytes::{BufMut, Bytes};
-use super::{BlockMeta, FileObject, SsTable};
-use crate::{block::BlockBuilder, key::KeySlice, lsm_storage::BlockCache};
-use crate::key::KeyBytes;
 
 /// Builds an SSTable from key-value pairs.
 pub struct SsTableBuilder {
@@ -54,15 +54,18 @@ impl SsTableBuilder {
         }
         if self.builder.add(key, value) {
             self.last_key = key.to_key_vec().into_inner();
+            return;
         }
-        
+
         self.finish_block();
+        self.builder.add(key, value);
         self.first_key = key.to_key_vec().into_inner();
         self.last_key = key.to_key_vec().into_inner();
     }
-    
+
     fn finish_block(&mut self) {
-        let block_builder = std::mem::replace(&mut self.builder, BlockBuilder::new(self.block_size));
+        let block_builder =
+            std::mem::replace(&mut self.builder, BlockBuilder::new(self.block_size));
         let block = block_builder.build();
         self.meta.push(BlockMeta {
             offset: self.data.len(),
